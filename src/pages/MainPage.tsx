@@ -20,6 +20,13 @@ export function MainPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
 
+  function formatTime(secs: number): string {
+    const m = Math.floor(secs / 60)
+    const s = Math.floor(secs % 60)
+    if (m === 0) return `${s}s`
+    return `${m}m${s.toString().padStart(2, '0')}s`
+  }
+
   useEffect(() => {
     if (!file) { setVideoUrl(null); return }
     const url = URL.createObjectURL(file)
@@ -355,7 +362,7 @@ export function MainPage() {
                         </svg>
                       </button>
                       <span className="text-xs text-[#a1a1aa] font-mono">
-                        {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+                        {formatTime(currentTime)} / {formatTime(duration)}
                       </span>
                       {/* Timestamp chips */}
                       <div className="flex gap-1.5 flex-wrap justify-end">
@@ -365,7 +372,7 @@ export function MainPage() {
                             onClick={() => { if (videoRef.current) videoRef.current.currentTime = s }}
                             className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/40 transition-colors"
                           >
-                            {s.toFixed(0)}s–{end.toFixed(0)}s
+                            {formatTime(s)}–{formatTime(end)}
                           </button>
                         ))}
                       </div>
