@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent } from 'react'
+import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { uploadVideo } from '../api/upload'
 import { postPromptStream } from '../api/prompt'
 import { downloadClipUrl } from '../api/download'
@@ -12,8 +12,19 @@ export function MainPage() {
   const [stream, setStream] = useState<StreamOutput | null>(null)
   const [lastFilename, setLastFilename] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    if (!file) { setVideoUrl(null); return }
+    const url = URL.createObjectURL(file)
+    setVideoUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
 
   async function handleSubmit(e?: FormEvent) {
     if (e) e.preventDefault()
@@ -263,20 +274,97 @@ export function MainPage() {
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-center animate-in zoom-in-95 duration-500">
-              <div className="w-20 h-20 bg-green-500/10 text-green-400 rounded-full flex items-center justify-center mb-6 border border-green-500/20 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
+            <div className="flex flex-col gap-6 animate-in zoom-in-95 duration-500">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-green-500/10 text-green-400 rounded-full flex items-center justify-center border border-green-500/20">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Extraction Complete</h2>
+                  <p className="text-xs text-[#a1a1aa]">{stream?.timestamps.length ?? 0} segment{(stream?.timestamps.length ?? 0) !== 1 ? 's' : ''} matched</p>
+                </div>
               </div>
-              
-              <h2 className="text-2xl font-semibold text-white mb-2">Extraction Complete!</h2>
-              <p className="text-sm text-[#a1a1aa] mb-8 max-w-sm">
-                Your video clip has been successfully generated based on your prompt.
-              </p>
-              
-              <div className="w-full flex flex-col gap-3 sm:flex-row">
+
+              {/* Video Player */}
+              {videoUrl && (
+                <div className="rounded-2xl overflow-hidden bg-black border border-[#27272a]">
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    className="w-full max-h-64 object-contain"
+                    controls={false}
+                    onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
+                    onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
+                    onClick={() => {
+                      const v = videoRef.current
+                      if (!v) return
+                      v.paused ? v.play() : v.pause()
+                    }}
+                  />
+
+                  {/* Custom Timeline */}
+                  <div className="px-4 pb-4 pt-3">
+                    <div
+                      className="relative h-2 bg-[#27272a] rounded-full cursor-pointer group"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const pct = (e.clientX - rect.left) / rect.width
+                        if (videoRef.current && duration) {
+                          videoRef.current.currentTime = pct * duration
+                        }
+                      }}
+                    >
+                      {/* Blue matched segments */}
+                      {duration > 0 && stream?.timestamps.map(([s, end], i) => (
+                        <div
+                          key={i}
+                          className="absolute top-0 h-full rounded-full bg-blue-500/80"
+                          style={{ left: `${(s / duration) * 100}%`, width: `${((end - s) / duration) * 100}%` }}
+                        />
+                      ))}
+                      {/* Playhead */}
+                      {duration > 0 && (
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md -translate-x-1/2 transition-[left] duration-100"
+                          style={{ left: `${(currentTime / duration) * 100}%` }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Time + controls row */}
+                    <div className="flex items-center justify-between mt-3">
+                      <button
+                        onClick={() => { const v = videoRef.current; if (v) v.paused ? v.play() : v.pause() }}
+                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                      </button>
+                      <span className="text-xs text-[#a1a1aa] font-mono">
+                        {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+                      </span>
+                      {/* Timestamp chips */}
+                      <div className="flex gap-1.5 flex-wrap justify-end">
+                        {stream?.timestamps.map(([s, end], i) => (
+                          <button
+                            key={i}
+                            onClick={() => { if (videoRef.current) videoRef.current.currentTime = s }}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/40 transition-colors"
+                          >
+                            {s.toFixed(0)}s–{end.toFixed(0)}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <a
                   href={downloadClipUrl(lastFilename)}
                   download
@@ -289,7 +377,6 @@ export function MainPage() {
                   </svg>
                   Download Clip
                 </a>
-                
                 <button
                   onClick={() => {
                     setStatus('idle')
@@ -297,6 +384,8 @@ export function MainPage() {
                     setQuery('')
                     setStream(null)
                     setLastFilename('')
+                    setCurrentTime(0)
+                    setDuration(0)
                   }}
                   className="flex-1 bg-[#18181b] border border-[#27272a] text-white font-semibold rounded-xl py-3.5 px-6 flex items-center justify-center gap-2 transition-all hover:bg-[#27272a] active:scale-[0.98]"
                 >
