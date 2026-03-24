@@ -12,3 +12,12 @@ export interface StreamOutput {
 export interface UploadResponse {
   message: string
 }
+
+export interface HistoryEntry {
+  id: string
+  prompt: string
+  filename: string
+  timestamps: [number, number][]
+  file: File
+  createdAt: Date
+}

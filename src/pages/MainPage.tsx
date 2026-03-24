@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { uploadVideo } from '../api/upload'
 import { postPromptStream } from '../api/prompt'
 import { downloadClipUrl } from '../api/download'
-import type { StreamOutput } from '../api/types'
+import type { StreamOutput, HistoryEntry } from '../api/types'
 import { PromptWizard } from '../components/PromptWizard'
+import { HistorySidebar } from '../components/HistorySidebar'
 
 export function MainPage() {
   const [file, setFile] = useState<File | null>(null)
@@ -16,6 +17,10 @@ export function MainPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const activeQueryRef = useRef('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -41,6 +46,7 @@ export function MainPage() {
       setStatus('error')
       return
     }
+    activeQueryRef.current = query.trim()
     setErrorMsg('')
     setStatus('wizard')
   }
@@ -51,12 +57,16 @@ export function MainPage() {
     setStatus('uploading')
     setStream(null)
     setLastFilename('')
+    setActiveHistoryId(null)
+
+    const capturedFile = file
+    const capturedQuery = activeQueryRef.current
 
     try {
       const ac = new AbortController()
 
-      await uploadVideo(file, ac.signal)
-      const uploadedFilename = file.name
+      await uploadVideo(capturedFile, ac.signal)
+      const uploadedFilename = capturedFile.name
 
       setStatus('processing')
       await postPromptStream(
@@ -67,6 +77,18 @@ export function MainPage() {
           if (ev.status === 'complete') {
             setStatus('complete')
             setLastFilename(uploadedFilename)
+
+            const entry: HistoryEntry = {
+              id: crypto.randomUUID(),
+              prompt: capturedQuery || finalPrompt,
+              filename: uploadedFilename,
+              timestamps: ev.timestamps,
+              file: capturedFile,
+              createdAt: new Date(),
+            }
+            setHistory((prev) => [...prev, entry])
+            setActiveHistoryId(entry.id)
+            setSidebarOpen(true)
           }
         },
         ac.signal
@@ -76,6 +98,17 @@ export function MainPage() {
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'An error occurred')
     }
+  }
+
+  function restoreHistoryEntry(entry: HistoryEntry) {
+    setFile(entry.file)
+    setQuery(entry.prompt)
+    setLastFilename(entry.filename)
+    setStream({ status: 'complete', timestamps: entry.timestamps })
+    setStatus('complete')
+    setActiveHistoryId(entry.id)
+    setCurrentTime(0)
+    setDuration(0)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -110,7 +143,20 @@ export function MainPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-4 sm:p-8 bg-[#09090b] text-[#fafafa] overflow-hidden selection:bg-white/20">
+    <div className="flex min-h-screen bg-[#09090b] text-[#fafafa]">
+      <HistorySidebar
+        entries={history}
+        activeId={activeHistoryId}
+        onSelect={restoreHistoryEntry}
+        onClear={() => { setHistory([]); setActiveHistoryId(null) }}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen((o) => !o)}
+      />
+
+      {/* Main content — shifts right when sidebar open */}
+      <div
+        className={`flex-1 relative flex items-center justify-center p-4 sm:p-8 overflow-hidden selection:bg-white/20 transition-[margin-left] duration-300 ease-in-out ${sidebarOpen ? 'ml-64' : 'ml-0'}`}
+      >
       {/* Background Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-white/[0.02] rounded-full blur-[120px] pointer-events-none" />
 
@@ -403,6 +449,7 @@ export function MainPage() {
                     setLastFilename('')
                     setCurrentTime(0)
                     setDuration(0)
+                    setActiveHistoryId(null)
                   }}
                   className="flex-1 bg-[#18181b] border border-[#27272a] text-white font-semibold rounded-xl py-3.5 px-6 flex items-center justify-center gap-2 transition-all hover:bg-[#27272a] active:scale-[0.98]"
                 >
@@ -423,6 +470,7 @@ export function MainPage() {
         <div className="mt-8 text-center text-xs text-[#a1a1aa]">
           Powered by Multimodal Retrieval Engine
         </div>
+      </div>
       </div>
     </div>
   )
