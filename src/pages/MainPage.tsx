@@ -3,11 +3,12 @@ import { uploadVideo } from '../api/upload'
 import { postPromptStream } from '../api/prompt'
 import { downloadClipUrl } from '../api/download'
 import type { StreamOutput } from '../api/types'
+import { PromptWizard } from '../components/PromptWizard'
 
 export function MainPage() {
   const [file, setFile] = useState<File | null>(null)
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<'idle' | 'uploading' | 'processing' | 'complete' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'wizard' | 'uploading' | 'processing' | 'complete' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [stream, setStream] = useState<StreamOutput | null>(null)
   const [lastFilename, setLastFilename] = useState('')
@@ -26,30 +27,33 @@ export function MainPage() {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
-  async function handleSubmit(e?: FormEvent) {
+  function handleSubmit(e?: FormEvent) {
     if (e) e.preventDefault()
     if (!file || !query.trim()) {
       setErrorMsg('Please select a video and enter a query.')
       setStatus('error')
       return
     }
+    setErrorMsg('')
+    setStatus('wizard')
+  }
+
+  async function proceedWithPrompt(finalPrompt: string) {
+    if (!file) return
 
     setStatus('uploading')
-    setErrorMsg('')
     setStream(null)
     setLastFilename('')
 
     try {
       const ac = new AbortController()
-      
-      // 1. Upload
+
       await uploadVideo(file, ac.signal)
       const uploadedFilename = file.name
-      
-      // 2. Process
+
       setStatus('processing')
       await postPromptStream(
-        query.trim(),
+        finalPrompt,
         uploadedFilename,
         (ev) => {
           setStream(ev)
@@ -123,7 +127,13 @@ export function MainPage() {
 
         <div className="glass-panel p-6 sm:p-10 rounded-3xl shadow-2xl">
           
-          {status === 'idle' || status === 'error' ? (
+          {status === 'wizard' ? (
+            <PromptWizard
+              prompt={query.trim()}
+              onComplete={(finalPrompt) => proceedWithPrompt(finalPrompt)}
+              onSkip={() => proceedWithPrompt(query.trim())}
+            />
+          ) : status === 'idle' || status === 'error' ? (
             <div className="flex flex-col gap-8">
               
               {/* Upload Section */}
