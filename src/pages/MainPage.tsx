@@ -9,7 +9,7 @@ import { HistorySidebar } from '../components/HistorySidebar'
 export function MainPage() {
   const [file, setFile] = useState<File | null>(null)
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<'idle' | 'wizard' | 'uploading' | 'processing' | 'complete' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'wizard' | 'processing' | 'complete' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [stream, setStream] = useState<StreamOutput | null>(null)
   const [lastFilename, setLastFilename] = useState('')
@@ -18,10 +18,13 @@ export function MainPage() {
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [clipReady, setClipReady] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'ready' | 'error'>('idle')
+  const [uploadedFilename, setUploadedFilename] = useState('')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const activeQueryRef = useRef('')
+  const uploadAbortRef = useRef<AbortController | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -34,9 +37,37 @@ export function MainPage() {
   }
 
   useEffect(() => {
-    if (!file) { setVideoUrl(null); return }
+    if (!file) {
+      setVideoUrl(null)
+      uploadAbortRef.current?.abort()
+      setUploadStatus('idle')
+      setUploadedFilename('')
+      return
+    }
+
     const url = URL.createObjectURL(file)
     setVideoUrl(url)
+
+    // Cancel any in-flight upload for the previous file
+    uploadAbortRef.current?.abort()
+    const ac = new AbortController()
+    uploadAbortRef.current = ac
+
+    setUploadStatus('uploading')
+    setUploadedFilename('')
+
+    uploadVideo(file, ac.signal)
+      .then(() => {
+        if (ac.signal.aborted) return
+        setUploadedFilename(file.name)
+        setUploadStatus('ready')
+      })
+      .catch((err: unknown) => {
+        if (ac.signal.aborted) return
+        console.error('Background upload failed:', err)
+        setUploadStatus('error')
+      })
+
     return () => URL.revokeObjectURL(url)
   }, [file])
 
@@ -47,15 +78,16 @@ export function MainPage() {
       setStatus('error')
       return
     }
+    if (uploadStatus !== 'ready') return
     activeQueryRef.current = query.trim()
     setErrorMsg('')
     setStatus('wizard')
   }
 
   async function proceedWithPrompt(finalPrompt: string) {
-    if (!file) return
+    if (!file || !uploadedFilename) return
 
-    setStatus('uploading')
+    setStatus('processing')
     setStream(null)
     setLastFilename('')
     setActiveHistoryId(null)
@@ -63,28 +95,25 @@ export function MainPage() {
 
     const capturedFile = file
     const capturedQuery = activeQueryRef.current
+    const capturedFilename = uploadedFilename
 
     try {
       const ac = new AbortController()
 
-      await uploadVideo(capturedFile, ac.signal)
-      const uploadedFilename = capturedFile.name
-
-      setStatus('processing')
       await postPromptStream(
         finalPrompt,
-        uploadedFilename,
+        capturedFilename,
         (ev) => {
           setStream(ev)
           if (ev.status === 'complete') {
             setStatus('complete')
-            setLastFilename(uploadedFilename)
+            setLastFilename(capturedFilename)
             setClipReady(true)
 
             const entry: HistoryEntry = {
               id: crypto.randomUUID(),
               prompt: capturedQuery || finalPrompt,
-              filename: uploadedFilename,
+              filename: capturedFilename,
               timestamps: ev.timestamps,
               file: capturedFile,
               createdAt: new Date(),
@@ -221,6 +250,25 @@ export function MainPage() {
                         <p className="text-sm font-medium text-white break-all line-clamp-1">{file.name}</p>
                         <p className="text-xs text-[#a1a1aa] mt-1">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                       </div>
+                      {/* Upload status badge */}
+                      {uploadStatus === 'uploading' && (
+                        <div className="flex items-center gap-1.5 text-xs text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-full px-3 py-1">
+                          <div className="w-3 h-3 border border-blue-300 border-t-transparent rounded-full animate-spin" />
+                          Uploading…
+                        </div>
+                      )}
+                      {uploadStatus === 'ready' && (
+                        <div className="flex items-center gap-1.5 text-xs text-green-300 bg-green-500/10 border border-green-500/20 rounded-full px-3 py-1">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                          Ready
+                        </div>
+                      )}
+                      {uploadStatus === 'error' && (
+                        <div className="flex items-center gap-1.5 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-full px-3 py-1">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                          Upload failed — click to retry
+                        </div>
+                      )}
                       <p className="text-xs text-white/40 mt-2 opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-4">Click to change</p>
                     </div>
                   ) : (
@@ -285,18 +333,27 @@ export function MainPage() {
               {/* Action Button */}
               <button
                 onClick={handleSubmit}
-                disabled={!file || !query.trim()}
+                disabled={!file || !query.trim() || uploadStatus !== 'ready'}
                 className="w-full bg-white text-black font-semibold rounded-xl py-4 flex items-center justify-center gap-2 transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100"
               >
-                <span>Extract Moment</span>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
+                {uploadStatus === 'uploading' ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-black/40 border-t-transparent rounded-full animate-spin" />
+                    <span>Uploading video…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Extract Moment</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                      <polyline points="12 5 19 12 12 19" />
+                    </svg>
+                  </>
+                )}
               </button>
 
             </div>
-          ) : status === 'uploading' || (status === 'processing' && (stream?.timestamps.length ?? 0) === 0) ? (
+          ) : status === 'processing' && (stream?.timestamps.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center animate-in fade-in duration-500">
               
               <div className="relative w-20 h-20 mb-8 flex items-center justify-center">
@@ -306,13 +363,9 @@ export function MainPage() {
                 <div className="w-12 h-12 border-2 border-white border-t-transparent rounded-full animate-spin" />
               </div>
               
-              <h2 className="text-xl font-medium text-white mb-2">
-                {status === 'uploading' ? 'Uploading your video...' : 'Analyzing content...'}
-              </h2>
+              <h2 className="text-xl font-medium text-white mb-2">Analyzing content…</h2>
               <p className="text-sm text-[#a1a1aa] max-w-xs">
-                {status === 'uploading' 
-                  ? 'Please wait while we securely transfer your file to our servers.'
-                  : 'Searching through the video frames to find your requested moment.'}
+                Searching through the video frames to find your requested moment.
               </p>
             </div>
           ) : (
