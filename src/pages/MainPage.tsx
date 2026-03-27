@@ -17,6 +17,7 @@ export function MainPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
+  const [clipReady, setClipReady] = useState(false)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -58,6 +59,7 @@ export function MainPage() {
     setStream(null)
     setLastFilename('')
     setActiveHistoryId(null)
+    setClipReady(false)
 
     const capturedFile = file
     const capturedQuery = activeQueryRef.current
@@ -77,6 +79,7 @@ export function MainPage() {
           if (ev.status === 'complete') {
             setStatus('complete')
             setLastFilename(uploadedFilename)
+            setClipReady(true)
 
             const entry: HistoryEntry = {
               id: crypto.randomUUID(),
@@ -106,6 +109,7 @@ export function MainPage() {
     setLastFilename(entry.filename)
     setStream({ status: 'complete', timestamps: entry.timestamps })
     setStatus('complete')
+    setClipReady(true)
     setActiveHistoryId(entry.id)
     setCurrentTime(0)
     setDuration(0)
@@ -292,7 +296,7 @@ export function MainPage() {
               </button>
 
             </div>
-          ) : status === 'uploading' || status === 'processing' ? (
+          ) : status === 'uploading' || (status === 'processing' && (stream?.timestamps.length ?? 0) === 0) ? (
             <div className="flex flex-col items-center justify-center py-12 text-center animate-in fade-in duration-500">
               
               <div className="relative w-20 h-20 mb-8 flex items-center justify-center">
@@ -310,44 +314,23 @@ export function MainPage() {
                   ? 'Please wait while we securely transfer your file to our servers.'
                   : 'Searching through the video frames to find your requested moment.'}
               </p>
-
-              {status === 'processing' && stream && (
-                <div className="w-full mt-10 text-left bg-[#09090b] border border-[#27272a] p-5 rounded-2xl">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-medium uppercase tracking-wider text-[#a1a1aa]">Current Status</span>
-                    <span className="text-xs font-medium bg-white/10 text-white px-2 py-1 rounded-md capitalize">
-                      {stream.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                  
-                  {stream.timestamps.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-[#27272a]">
-                      <span className="text-xs font-medium uppercase tracking-wider text-[#a1a1aa] mb-3 block">Matches Found</span>
-                      <ul className="space-y-2">
-                        {stream.timestamps.map(([start, end], idx) => (
-                          <li key={idx} className="flex items-center gap-3 text-sm text-white bg-[#18181b] p-2 px-3 rounded-lg border border-white/[0.02]">
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                            {start.toFixed(1)}s <span className="text-[#a1a1aa] text-xs">→</span> {end.toFixed(1)}s
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           ) : (
             <div className="flex flex-col gap-6 animate-in zoom-in-95 duration-500">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-green-500/10 text-green-400 rounded-full flex items-center justify-center border border-green-500/20">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                    <polyline points="22 4 12 14.01 9 11.01" />
-                  </svg>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${clipReady ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                  {clipReady ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  ) : (
+                    <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  )}
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Extraction Complete</h2>
-                  <p className="text-xs text-[#a1a1aa]">{stream?.timestamps.length ?? 0} segment{(stream?.timestamps.length ?? 0) !== 1 ? 's' : ''} matched</p>
+                  <h2 className="text-lg font-semibold text-white">{clipReady ? 'Extraction Complete' : 'Matches Found'}</h2>
+                  <p className="text-xs text-[#a1a1aa]">{stream?.timestamps.length ?? 0} segment{(stream?.timestamps.length ?? 0) !== 1 ? 's' : ''} matched{!clipReady ? ' — preparing clip…' : ''}</p>
                 </div>
               </div>
 
@@ -428,18 +411,28 @@ export function MainPage() {
               )}
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                <a
-                  href={downloadClipUrl(lastFilename)}
-                  download
-                  className="flex-1 bg-white text-black font-semibold rounded-xl py-3.5 px-6 flex items-center justify-center gap-2 transition-all hover:bg-white/90 active:scale-[0.98]"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  Download Clip
-                </a>
+                {clipReady ? (
+                  <a
+                    href={downloadClipUrl(lastFilename)}
+                    download
+                    className="flex-1 bg-white text-black font-semibold rounded-xl py-3.5 px-6 flex items-center justify-center gap-2 transition-all hover:bg-white/90 active:scale-[0.98]"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Download Clip
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    className="flex-1 bg-[#18181b] border border-[#27272a] text-[#a1a1aa] font-semibold rounded-xl py-3.5 px-6 flex items-center justify-center gap-2 cursor-not-allowed"
+                  >
+                    <div className="w-4 h-4 border-2 border-[#a1a1aa] border-t-transparent rounded-full animate-spin" />
+                    Preparing clip…
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setStatus('idle')
