@@ -95,7 +95,7 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
   function buildSuffix(cat: Category, temporal?: string): string {
     if (cat === 'yolo') return ' (use yolo)'
     if (cat === 'audio') return ' (use audio)'
-    if (cat === 'clip-text') return ' (use clip, search for visible text on screen)'
+    if (cat === 'clip-text') return ' (use ocr)'
     if (cat === 'clip') {
       return temporal === 'sequence'
         ? ' (use xclip)'
