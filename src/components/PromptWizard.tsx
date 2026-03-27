@@ -98,7 +98,7 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
     if (cat === 'clip-text') return ' (use clip, search for visible text on screen)'
     if (cat === 'clip') {
       return temporal === 'sequence'
-        ? ' (use clip, this requires analyzing a temporal sequence of frames)'
+        ? ' (use xclip)'
         : ' (use clip)'
     }
     return ''
