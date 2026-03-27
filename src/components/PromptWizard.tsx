@@ -92,12 +92,40 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
     },
   ]
 
-  function buildSuffix(cat: Category, temporal?: string): string {
+  const clipTextStep2Options: Option[] = [
+    {
+      id: 'text-scene',
+      label: 'Text appearing in a scene',
+      description: 'Find moments where text related to your description is visible on screen (signs, titles, captions, etc.).',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
+        </svg>
+      ),
+    },
+    {
+      id: 'exact-text',
+      label: 'Exact text match',
+      description: 'Search for the exact words or phrase you wrote in your prompt — character-level match on screen text.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      ),
+    },
+  ]
+
+  function buildSuffix(cat: Category, sub?: string): string {
     if (cat === 'yolo') return ' (use yolo)'
     if (cat === 'audio') return ' (use audio)'
-    if (cat === 'clip-text') return ' (use ocr)'
+    if (cat === 'clip-text') {
+      return sub === 'exact-text'
+        ? ' (use ocr, exact text search)'
+        : ' (use ocr)'
+    }
     if (cat === 'clip') {
-      return temporal === 'sequence'
+      return sub === 'sequence'
         ? ' (use xclip)'
         : ' (use clip)'
     }
@@ -106,8 +134,8 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
 
   function handleStep1(id: string) {
     setSelected(id)
-    if (id === 'clip') {
-      setCategory('clip')
+    if (id === 'clip' || id === 'clip-text') {
+      setCategory(id as Category)
       setTimeout(() => { setStep(2); setSelected(null) }, 150)
     } else {
       const cat = id as Category
@@ -118,18 +146,28 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
 
   function handleStep2(id: string) {
     setSelected(id)
-    setTimeout(() => onComplete(prompt + buildSuffix('clip', id)), 150)
+    setTimeout(() => onComplete(prompt + buildSuffix(category, id)), 150)
   }
 
-  const currentOptions = step === 1 ? step1Options : step2Options
+  const currentOptions =
+    step === 1 ? step1Options
+    : category === 'clip-text' ? clipTextStep2Options
+    : step2Options
+
+  const hasStep2 = category === 'clip' || category === 'clip-text' || step === 2
+
   const question =
     step === 1
       ? 'What best describes what you are searching for?'
-      : 'Can a single frame identify this, or does it need a sequence?'
+      : category === 'clip-text'
+        ? 'Are you looking for any text on screen, or the exact words from your prompt?'
+        : 'Can a single frame identify this, or does it need a sequence?'
   const subtext =
     step === 1
       ? 'This helps route your query to the right model. You can skip anytime.'
-      : 'Knowing this helps the system decide whether to search frame-by-frame or across a time window.'
+      : category === 'clip-text'
+        ? 'Exact text search looks for the precise string in your prompt; scene search is more flexible.'
+        : 'Knowing this helps the system decide whether to search frame-by-frame or across a time window.'
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-400">
@@ -148,7 +186,7 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
               </button>
             )}
             <span className="text-xs font-medium uppercase tracking-wider text-[#a1a1aa]">
-              Step {step} of {category === 'clip' || step === 2 ? 2 : 1}
+              Step {step} of {hasStep2 ? 2 : 1}
             </span>
           </div>
           <h2 className="text-base font-semibold text-white">{question}</h2>
