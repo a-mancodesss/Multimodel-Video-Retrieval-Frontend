@@ -121,7 +121,7 @@ export function PromptWizard({ prompt, onComplete, onSkip }: Props) {
     if (cat === 'audio') return ' (use audio)'
     if (cat === 'clip-text') {
       return sub === 'exact-text'
-        ? ' (use ocr, exact text search)'
+        ? ' (use ocr) (exact text search)'
         : ' (use ocr)'
     }
     if (cat === 'clip') {
